@@ -1,0 +1,101 @@
+import streamlit as st
+import fitz  # PyMuPDF
+from docx import Document
+from openai import OpenAI
+import os
+
+# Set up your OpenAI API key
+# You should store this securely, e.g., in a .env file or Streamlit secrets
+os.environ["Gemini_API_KEY"] = "AIzaSyAXWljeX6aYPAINcW9QasYVkI_9i67O79k"
+client = Gemini()
+
+def extract_text_from_pdf(file):
+    """Extracts text from a PDF file."""
+    doc = fitz.open(stream=file.read(), filetype="pdf")
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
+
+def extract_text_from_docx(file):
+    """Extracts text from a DOCX file."""
+    doc = Document(file)
+    text = []
+    for para in doc.paragraphs:
+        text.append(para.text)
+    return "\n".join(text)
+
+def analyze_document_with_llm(text, task):
+    """Sends text to a large language model for analysis."""
+    prompt = f"{task}\n\nDocument Text:\n{text[:4000]}" # Truncate for API limits
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4-turbo",  # Or another suitable model
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"An error occurred: {e}"
+
+st.set_page_config(page_title="Contract Analyzer", layout="wide")
+st.title("📄 Contract Analyzer")
+
+# --- File Uploader Section ---
+st.header("Upload a Contract")
+uploaded_file = st.file_uploader("Choose a PDF or DOCX file", type=["pdf", "docx"])
+
+if uploaded_file:
+    with st.spinner("Processing document..."):
+        file_extension = uploaded_file.name.split('.')[-1]
+        
+        if file_extension == 'pdf':
+            full_text = extract_text_from_pdf(uploaded_file)
+        elif file_extension == 'docx':
+            full_text = extract_text_from_docx(uploaded_file)
+        else:
+            st.error("Unsupported file type.")
+            full_text = None
+
+    if full_text:
+        st.success("Document uploaded and text extracted!")
+
+        # --- Display Sections ---
+        st.markdown("---")
+        st.header("Analysis Results")
+        
+        # Section 1: Summary
+        with st.expander("Summary", expanded=True):
+            with st.spinner("Generating summary..."):
+                summary_prompt = "Provide a concise summary of the key points in the following contract."
+                summary = analyze_document_with_llm(full_text, summary_prompt)
+                st.write(summary)
+
+        # Section 2: Important Clauses
+        with st.expander("Important Clauses", expanded=True):
+            with st.spinner("Extracting important clauses..."):
+                clauses_prompt = "Identify and list the most important clauses from the following contract, such as termination, liability, and payment terms."
+                clauses = analyze_document_with_llm(full_text, clauses_prompt)
+                st.write(clauses)
+
+        st.markdown("---")
+        
+        # Section 3: Chat/Q&A Box
+        st.header("Chat with the Document")
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        if user_prompt := st.chat_input("Ask a question about the document..."):
+            st.session_state.messages.append({"role": "user", "content": user_prompt})
+            with st.chat_message("user"):
+                st.markdown(user_prompt)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    chat_prompt = f"Based on the following document, answer this question: {user_prompt}\n\nDocument Text:\n{full_text[:4000]}"
+                    response = analyze_document_with_llm(full_text, chat_prompt)
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
