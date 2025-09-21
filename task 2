@@ -1,14 +1,18 @@
 import streamlit as st
 import fitz  # PyMuPDF
 from docx import Document
-from openai import OpenAI
-import os
+import google.generativeai as genai
 
-# Set up your OpenAI API key
-# You should store this securely, e.g., in a .env file or Streamlit secrets
-os.environ["Gemini_API_KEY"] = "AIzaSyAXWljeX6aYPAINcW9QasYVkI_9i67O79k"
-client = Gemini()
+# --------------------------
+# 🔑 Configure Gemini API Key
+# --------------------------
+# Recommended: put your key in Streamlit secrets (see note below)
+genai.configure(api_key="AIzaSyAXWljeX6aYPAINcW9QasYVkI_9i67O79k")
+model = genai.GenerativeModel("gemini-1.5-flash")  # you can also try "gemini-pro"
 
+# --------------------------
+# 📄 File Parsing Functions
+# --------------------------
 def extract_text_from_pdf(file):
     """Extracts text from a PDF file."""
     doc = fitz.open(stream=file.read(), filetype="pdf")
@@ -25,28 +29,31 @@ def extract_text_from_docx(file):
         text.append(para.text)
     return "\n".join(text)
 
+# --------------------------
+# 🤖 LLM Analysis Function
+# --------------------------
 def analyze_document_with_llm(text, task):
-    """Sends text to a large language model for analysis."""
-    prompt = f"{task}\n\nDocument Text:\n{text[:4000]}" # Truncate for API limits
+    """Sends text to Gemini for analysis."""
+    prompt = f"{task}\n\nDocument Text:\n{text[:4000]}"  # limit to first 4000 chars
     try:
-        response = client.chat.completions.create(
-            model="gpt-4-turbo",  # Or another suitable model
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message.content
+        response = model.generate_content(prompt)
+        return response.text
     except Exception as e:
         return f"An error occurred: {e}"
 
+# --------------------------
+# 🎨 Streamlit UI
+# --------------------------
 st.set_page_config(page_title="Contract Analyzer", layout="wide")
 st.title("📄 Contract Analyzer")
 
-# --- File Uploader Section ---
+# File Upload
 st.header("Upload a Contract")
 uploaded_file = st.file_uploader("Choose a PDF or DOCX file", type=["pdf", "docx"])
 
 if uploaded_file:
     with st.spinner("Processing document..."):
-        file_extension = uploaded_file.name.split('.')[-1]
+        file_extension = uploaded_file.name.split('.')[-1].lower()
         
         if file_extension == 'pdf':
             full_text = extract_text_from_pdf(uploaded_file)
@@ -57,21 +64,21 @@ if uploaded_file:
             full_text = None
 
     if full_text:
-        st.success("Document uploaded and text extracted!")
+        st.success("✅ Document uploaded and text extracted!")
 
-        # --- Display Sections ---
+        # --- Analysis Sections ---
         st.markdown("---")
         st.header("Analysis Results")
         
-        # Section 1: Summary
-        with st.expander("Summary", expanded=True):
+        # Summary
+        with st.expander("📌 Summary", expanded=True):
             with st.spinner("Generating summary..."):
                 summary_prompt = "Provide a concise summary of the key points in the following contract."
                 summary = analyze_document_with_llm(full_text, summary_prompt)
                 st.write(summary)
 
-        # Section 2: Important Clauses
-        with st.expander("Important Clauses", expanded=True):
+        # Important Clauses
+        with st.expander("⚖️ Important Clauses", expanded=True):
             with st.spinner("Extracting important clauses..."):
                 clauses_prompt = "Identify and list the most important clauses from the following contract, such as termination, liability, and payment terms."
                 clauses = analyze_document_with_llm(full_text, clauses_prompt)
@@ -79,8 +86,8 @@ if uploaded_file:
 
         st.markdown("---")
         
-        # Section 3: Chat/Q&A Box
-        st.header("Chat with the Document")
+        # Q&A Chat
+        st.header("💬 Chat with the Document")
         if "messages" not in st.session_state:
             st.session_state.messages = []
 
@@ -99,3 +106,5 @@ if uploaded_file:
                     response = analyze_document_with_llm(full_text, chat_prompt)
                     st.markdown(response)
                     st.session_state.messages.append({"role": "assistant", "content": response})
+
+
